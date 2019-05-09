@@ -1,0 +1,10 @@
+;FLAVOR:UltiGCode
+;TIME:36
+;MATERIAL:87
+;MATERIAL2:0
+;NOZZLE_DIAMETER:0.4
+;Generated with Cura_SteamEngine 3.4.0
+M82 ;absolute extrusion mode
+
+G92 E0
+G10
