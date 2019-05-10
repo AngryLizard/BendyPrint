@@ -27,6 +27,8 @@ public:
 
 	double totalEnergy() const;
 
+	void addFixedVertex(int32_t vertex, const Eigen::Vector3d& offset);
+
 	void computeElements();
 	void gradientTest(double h);
 	void gradientDescent(double lambda, int32_t maxIterations);

@@ -13,8 +13,8 @@ Meshbuilder::Meshbuilder(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, dou
 	_oV = V;
 	_oF = F;
 
-	const double shear = 10.0;
-	const double bulk = 10.0;
+	const double shear = 50.0;
+	const double bulk = 50.0;
 
 	Eigen::MatrixXd vN, fN;
 	igl::per_vertex_normals(_oV, _oF, vN);
@@ -74,13 +74,6 @@ Meshbuilder::Meshbuilder(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, dou
 	{
 		_V.row(i + verts) = _oV.row(i) - vN.row(i) * depth;
 	}
-
-	// Fix mesh
-	//_elements.push_back(new Fixed(_V, Eigen::Vector3i(0, 1, 2), 10.0));
-
-	// Plane mesh
-	_pV = Eigen::MatrixXd(verts, 2);
-	_pF = Eigen::MatrixXi(faces, 3);
 }
 
 Meshbuilder::~Meshbuilder()
@@ -94,6 +87,12 @@ Meshbuilder::~Meshbuilder()
 double Meshbuilder::totalEnergy() const
 {
 	return _energy;
+}
+
+void Meshbuilder::addFixedVertex(int32_t vertex, const Eigen::Vector3d& offset)
+{
+	_V.row(vertex) += offset;
+	_elements.push_back(new Fixed(_V, Eigen::VectorXi::Constant(1, vertex), 10.0));
 }
 
 void Meshbuilder::gradientTest(double h)
@@ -189,6 +188,14 @@ void Meshbuilder::renderShell(igl::opengl::glfw::Viewer& viewer) const
 void Meshbuilder::computePlane(bool hasCeiling, double altitude)
 {
 	int32_t n = _oF.rows();
+	for (int i = 0; i < n; i++)
+	{
+		for (int j = 0; j < 3; j++)
+		{
+			_oV.row(_F(i, j)) = _V.row(_F(i, j));
+		}
+	}
+
 	Eigen::MatrixXi Ti, Tii;
 	igl::triangle_triangle_adjacency(_oF, Ti, Tii);
 

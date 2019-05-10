@@ -57,8 +57,8 @@ int main(int argc, char *argv[])
 	// Generate mesh
 	Eigen::MatrixXd pV;
 	Eigen::MatrixXi pF;
-	//generateQuad(Eigen::Vector2i(4, 8), pV, pF, 0.1);
-	igl::readOBJ("../asset/sphere.obj", pV, pF);
+	generateQuad(Eigen::Vector2i(4, 6), pV, pF, 0.1);
+	//igl::readOBJ("../asset/sphere.obj", pV, pF);
 
 	// Build shell
 	Meshbuilder builder(pV, pF, 0.5);
@@ -100,6 +100,13 @@ int main(int argc, char *argv[])
 		if (ImGui::Button("Test"))
 		{
 			builder.gradientTest(0.0001);
+		}
+
+		if (ImGui::Button("Pick"))
+		{
+			builder.addFixedVertex(0, Eigen::Vector3d(0.0, -0.5, 0.0));
+			builder.computeElements();
+			builder.renderShell(viewer);
 		}
 
 		if (ImGui::Button("Iterate"))
