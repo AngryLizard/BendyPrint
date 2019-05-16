@@ -39,6 +39,17 @@ void Element::addHessian(Eigen::MatrixXd& H) const
 	}
 }
 
+
+void Element::addFiniteGradient(Eigen::MatrixXd& G) const
+{
+	const int32_t n = (int32_t)_indices.size();
+	for (int32_t i = 0; i < n; i++)
+	{
+		G.row(_indices[i]) += _fG.row(i);
+	}
+}
+
+
 void Element::colorFaces(const Eigen::Vector3d& rgb, Eigen::MatrixXd& C) const
 {
 	for (int i = 0; i < _faces.size(); i++)

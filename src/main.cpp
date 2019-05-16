@@ -55,13 +55,26 @@ int main(int argc, char *argv[])
 	viewer.core.lighting_factor = 0.3f;
 
 	// Generate mesh
-	Eigen::MatrixXd pV;
-	Eigen::MatrixXi pF;
-	generateQuad(Eigen::Vector2i(4, 6), pV, pF, 0.1);
+	Eigen::MatrixXd pV(4, 3);
+	Eigen::MatrixXi pF(1, 3);
+
+	/*
+	pV <<
+		0.0, 0.0, 0.0,
+		0.0, 1.0, 0.0,
+		1.0, 0.0, 0.0,
+		0.0, 0.0, 1.0;
+	pF << 0, 1, 2;
+	Meshbuilder builder(pV, pF);
+	*/
+
+	Eigen::Vector2i dim(4, 6);
+	generateQuad(dim, pV, pF, 0.0);
+	Meshbuilder builder(pV, pF, 2.5);
+
 	//igl::readOBJ("../asset/sphere.obj", pV, pF);
 
 	// Build shell
-	Meshbuilder builder(pV, pF, 0.5);
 	builder.computeElements();
 	builder.renderShell(viewer);
 
@@ -99,19 +112,41 @@ int main(int argc, char *argv[])
 
 		if (ImGui::Button("Test"))
 		{
-			builder.gradientTest(0.0001);
+			builder.gradientTest(0.00001);
 		}
 
 		if (ImGui::Button("Pick"))
 		{
-			builder.addFixedVertex(0, Eigen::Vector3d(0.0, -0.5, 0.0));
+			const int32_t vertex = 0;
+			Eigen::Vector3d position = builder.getFixedVertex(vertex);
+			builder.addFixedVertex(0, position + Eigen::Vector3d(0.0, -0.5, 0.0));
+
+			builder.computeElements();
+			builder.renderShell(viewer);
+		}
+
+		if (ImGui::Button("Deform"))
+		{
+			const double bend = 0.1;
+			const double depth = 2.5;
+			for (int32_t y = 0; y <= dim.y(); y++)
+			{
+				for (int32_t x = 0; x <= dim.x(); x++)
+				{
+					const int32_t index = y * (dim.x() + 1) + x;
+					const Eigen::Vector2d p((double)x - 0.5 * dim.x(), (double)y - 0.5 * dim.y());
+
+					builder.setFixedVertex(index, Vec3(p.x(), p.squaredNorm() * bend, p.y()));
+					builder.setFixedVertex(index + pV.rows(), Vec3(p.x(), p.squaredNorm() * bend + depth, p.y()));
+				}
+			}
 			builder.computeElements();
 			builder.renderShell(viewer);
 		}
 
 		if (ImGui::Button("Iterate"))
 		{
-			builder.gradientDescent(0.1, 10'000);
+			builder.gradientDescent(0.1, 1'000);
 			builder.renderShell(viewer);
 		}
 
@@ -119,6 +154,12 @@ int main(int argc, char *argv[])
 		{
 			builder.computePlane(false, -3);
 			builder.renderPlane(viewer);
+		}
+
+		if (ImGui::Button("Slice"))
+		{
+			IntervalBread bread = builder.createIntervalBread(Eigen::Vector2d(1.0, 0.0), 0.1);
+			builder.renderSlices(bread, viewer, -1.0);
 		}
 
 		if (ImGui::Button("Generate G-Code"))

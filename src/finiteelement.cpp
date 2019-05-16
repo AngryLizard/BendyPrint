@@ -16,51 +16,44 @@ FiniteElement::~FiniteElement()
 void FiniteElement::compute(const Eigen::MatrixXd& V)
 {
 	const Eigen::MatrixXd x = extract(V);
+
 	_F = computeDeformation(x);
 	_E = computeStrain(_F);
 	_energy = energy(_E);
 
-	const Eigen::MatrixXd dUdF = dUdE(_E) * dEdF(_F);
-	_G = dUdx(dUdF);
+	_G = dUdx(dUdF(_E, _F));
+
+#ifdef COMPUTE_FINITE_DIFFERENCE
+	_fG = diffTestG(x, 0.0001);
+#endif
 }
 
 double FiniteElement::diffTest(const Eigen::MatrixXd& V, double h)
 {
 	Eigen::MatrixXd x = extract(V);
+	const Eigen::MatrixXd F = computeDeformation(x);
+	const Eigen::MatrixXd E = computeStrain(F);
+	const double e = energy(E);
+
+	const Eigen::MatrixXd ddUdF = dUdF(E, F);
+	const Eigen::MatrixXd ddUdx = dUdx(ddUdF);
+
+	//const Eigen::MatrixXd hdUdF = diffTestF(x, h);
+	const Eigen::MatrixXd hdUdx = diffTestG(x, h);
+
 	double err = 0.0;
-	//err += diffTestE(x, h);
-	err += diffTestF(x, h);
-	//err += diffTestG(x, h);
+	//err += (ddUdF - hdUdF).squaredNorm();
+	err += (ddUdx - hdUdx).squaredNorm();
+
 	return err;
 }
 
 /////////////////////////////////////////////////////
 
-double FiniteElement::diffTestE(const Eigen::MatrixXd& x, double h)
+Eigen::MatrixXd FiniteElement::diffTestF(const Eigen::MatrixXd& x, double h)
 {
 	const Eigen::MatrixXd F = computeDeformation(x);
 	const Eigen::MatrixXd E = computeStrain(F);
-	const Eigen::MatrixXd dU = dUdE(E);
-	const double e = energy(E);
-
-	Eigen::MatrixXd hU = Eigen::MatrixXd::Zero(E.rows(), E.cols());
-	for (int i = 0; i < E.rows(); i++)
-	{
-		for (int j = 0; j < E.cols(); j++)
-		{
-			Eigen::MatrixXd hE = E;
-			hE(i, j) += h;
-			hU(i, j) = (energy(hE) - e) / h;
-		}
-	}
-	return (hU - dU).squaredNorm();
-}
-
-double FiniteElement::diffTestF(const Eigen::MatrixXd& x, double h)
-{
-	const Eigen::MatrixXd F = computeDeformation(x);
-	const Eigen::MatrixXd E = computeStrain(F);
-	const Eigen::MatrixXd dU = dUdE(E) * dEdF(F);
 	const double e = energy(E);
 
 	Eigen::MatrixXd hU = Eigen::MatrixXd::Zero(F.rows(), F.cols());
@@ -76,15 +69,13 @@ double FiniteElement::diffTestF(const Eigen::MatrixXd& x, double h)
 		}
 	}
 	
-	return (hU - dU).squaredNorm();
+	return hU;
 }
 
-double FiniteElement::diffTestG(const Eigen::MatrixXd& x, double h)
+Eigen::MatrixXd FiniteElement::diffTestG(const Eigen::MatrixXd& x, double h)
 {
 	const Eigen::MatrixXd F = computeDeformation(x);
 	const Eigen::MatrixXd E = computeStrain(F);
-	const Eigen::MatrixXd dUdF = dUdE(E) * dEdF(F);
-	const Eigen::MatrixXd dU = dUdx(dUdF);
 	const double e = energy(E);
 
 	Eigen::MatrixXd hU = Eigen::MatrixXd::Zero(x.rows(), x.cols());
@@ -101,17 +92,10 @@ double FiniteElement::diffTestG(const Eigen::MatrixXd& x, double h)
 		}
 	}
 
-	return (hU - dU).squaredNorm();
+	return hU;
 }
 
 /////////////////////////////////////////////////////
-
-
-Eigen::MatrixXd FiniteElement::dUdE(const Eigen::MatrixXd& E) const
-{
-	const double trE = E.trace();
-	return (_shear * E.trace() * Tensor::Identity() + (2 * _bulk) * E.transpose()) * _volume;
-}
 
 double FiniteElement::energy(const Eigen::MatrixXd& E) const
 {

@@ -22,7 +22,7 @@ protected:
 	virtual Eigen::MatrixXd computeStrain(const Eigen::MatrixXd& F) const override;
 
 	virtual Eigen::MatrixXd dUdx(const Eigen::MatrixXd& dUdF) const override;
-	virtual Eigen::MatrixXd dEdF(const Eigen::MatrixXd& F) const override;
+	virtual Eigen::MatrixXd dUdF(const Eigen::MatrixXd& E, const Eigen::MatrixXd& F) const override;
 
 	/////////////////////////////////////////////////////
 private:

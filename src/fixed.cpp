@@ -18,6 +18,10 @@ void Fixed::compute(const Eigen::MatrixXd& V)
 	Eigen::MatrixXd x = extract(V);
 	_energy = energy(x);
 	_G = computeGradient(x);
+
+#ifdef COMPUTE_FINITE_DIFFERENCE
+	_fG = computeGradient(x);
+#endif
 }
 
 double Fixed::diffTest(const Eigen::MatrixXd& V, double h)

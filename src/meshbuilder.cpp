@@ -76,6 +76,40 @@ Meshbuilder::Meshbuilder(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, dou
 	}
 }
 
+Meshbuilder::Meshbuilder(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F)
+{
+	_oV = V;
+	_oF = F;
+
+	const double shear = 50.0;
+	const double bulk = 50.0;
+	
+	// Make vertices
+	const int32_t verts = _oV.rows();
+	_V = Eigen::MatrixXd::Zero(verts, 3);
+	for (int i = 0; i < verts; i++)
+	{
+		_V.row(i) = _oV.row(i);
+	}
+
+	// Make elements
+	_F = Eigen::MatrixXi(verts, 3);
+	_C = Eigen::MatrixXd(verts, 3);
+	for (int i = 0; i < verts; i+=4)
+	{
+		const Eigen::Vector4i idx = Eigen::Vector4i(i, i + 1, i + 2, i + 3);
+
+		_F.row(i) =		Eigen::Vector3i(i, i+1, i+2);
+		_F.row(i+1) =	Eigen::Vector3i(i+1, i+3, i+2);
+		_F.row(i+2) =	Eigen::Vector3i(i, i+1, i+3);
+		_F.row(i+3) =	Eigen::Vector3i(i, i+3, i+2);
+
+		// Create elements
+		_elements.push_back(new Tetrahedron(_V, idx, idx, shear, bulk));
+	}
+
+}
+
 Meshbuilder::~Meshbuilder()
 {
 	for (Element* element : _elements)
@@ -89,10 +123,20 @@ double Meshbuilder::totalEnergy() const
 	return _energy;
 }
 
-void Meshbuilder::addFixedVertex(int32_t vertex, const Eigen::Vector3d& offset)
+void Meshbuilder::addFixedVertex(int32_t vertex, const Eigen::Vector3d& position)
 {
-	_V.row(vertex) += offset;
+	setFixedVertex(vertex, position);
 	_elements.push_back(new Fixed(_V, Eigen::VectorXi::Constant(1, vertex), 10.0));
+}
+
+void Meshbuilder::setFixedVertex(int32_t vertex, const Eigen::Vector3d& position)
+{
+	_V.row(vertex) = position;
+}
+
+Eigen::Vector3d Meshbuilder::getFixedVertex(int32_t vertex) const
+{
+	return _V.row(vertex);
 }
 
 void Meshbuilder::gradientTest(double h)
@@ -105,12 +149,12 @@ void Meshbuilder::gradientTest(double h)
 	std::cout << "error: " << err << std::endl;
 }
 
-
 void Meshbuilder::computeElements()
 {
 	// Compute element states
 	const int32_t n = _elements.size();
 	Eigen::VectorXd energies = Eigen::VectorXd::Zero(n);
+
 	_gradient = Eigen::MatrixXd::Zero(_V.rows(), 3);
 	for (int32_t i = 0; i < n; i++)
 	{
@@ -120,6 +164,21 @@ void Meshbuilder::computeElements()
 		element->addGradient(_gradient);
 		energies[i] = element->getEnergy();
 	}
+
+#ifdef COMPUTE_FINITE_DIFFERENCE
+	_finiteGradient = Eigen::MatrixXd::Zero(_V.rows(), 3);
+	for (int32_t i = 0; i < n; i++)
+	{
+		Element* element = _elements[i];
+		element->addFiniteGradient(_finiteGradient);
+	}
+
+	/*
+	std::cout << "__________________________" << std::endl;
+	std::cout << _gradient << std::endl;
+	std::cout << _finiteGradient << std::endl;
+	*/
+#endif
 
 	const Eigen::Vector3d lo(1.0, 1.0, 1.0);
 	const Eigen::Vector3d hi(1.0, 0.0, 0.0);
@@ -171,6 +230,7 @@ void Meshbuilder::gradientDescent(double lambda, int32_t maxIterations)
 
 			if (step < EPS)
 			{
+				_V = V;
 				return;
 			}
 		}
@@ -182,8 +242,19 @@ void Meshbuilder::renderShell(igl::opengl::glfw::Viewer& viewer) const
 	viewer.data().clear();
 	viewer.data().set_mesh(_V, _F);
 	viewer.data().set_colors(_C);
+	
 	viewer.data().set_face_based(true);
+	
+	const Eigen::RowVector3d white(1.0, 1.0, 1.0);
+	viewer.data().add_edges(_V, _V - _gradient, white);
+
+#ifdef COMPUTE_FINITE_DIFFERENCE
+	const Eigen::RowVector3d red(1.0, 0.0, 0.0);
+	viewer.data().add_edges(_V, _V - _finiteGradient, red);
+#endif
 }
+
+/////////////////////////////////////////////////////
 
 void Meshbuilder::computePlane(bool hasCeiling, double altitude)
 {
@@ -350,4 +421,119 @@ void Meshbuilder::renderPlane(igl::opengl::glfw::Viewer& viewer) const
 	viewer.data().clear();
 	viewer.data().set_mesh(V, F);
 	viewer.data().set_face_based(true);
+}
+
+/////////////////////////////////////////////////////
+
+IntervalBread Meshbuilder::createIntervalBread(const Eigen::Vector2d& dir, double density) const
+{
+	// Start with first vertex
+	const Eigen::Vector3d& vp = _pV.row(0);
+	double min = dir.dot(Eigen::Vector2d(vp.x(), vp.z()));
+	for (int i = 0; i < _pF.rows(); i++)
+	{
+		// Get face corners in slicer space
+		const Eigen::Vector3i& face = _pF.row(i);
+
+		const Eigen::Vector3d& va = _pV.row(face.x());
+		const double a = dir.dot(Eigen::Vector2d(va.x(), va.z()));
+
+		const Eigen::Vector3d& vb = _pV.row(face.y());
+		const double b = dir.dot(Eigen::Vector2d(vb.x(), vb.z()));
+
+		const Eigen::Vector3d& vc = _pV.row(face.z());
+		const double c = dir.dot(Eigen::Vector2d(vc.x(), vc.z()));
+
+		min = std::min(a, std::min(b, c));
+	}
+
+	// Make slices
+	IntervalBread bread(min * dir, dir);
+	while (tracePlane(bread, density)) {}
+	return bread;
+}
+
+bool Meshbuilder::lineIntersection(double y, const Eigen::Vector2d& a, const Eigen::Vector2d& b, Interval& interval) const
+{
+	if ((a.y() < y) != (b.y() < y))
+	{
+		const Eigen::Vector2d e = b - a;
+
+		const double d = a.y() - y;
+		const double t = d / e.y();
+		const double x = a.x() + t * e.x();
+
+		interval.a = std::min(interval.a, x);
+		interval.b = std::max(interval.b, x);
+		return true;
+	}
+	return false;
+}
+
+bool Meshbuilder::tracePlane(IntervalBread& bread, double density) const
+{
+	// Make rotation matrix from global to local
+	const Eigen::Matrix2d rot = bread.getRot();
+	const Eigen::Vector2d pnt = bread.getAnchor();
+
+	IntervalSlice slice;
+	const Eigen::Vector2d& p = rot * pnt;
+	for (int i = 0; i < _pF.rows(); i++)
+	{
+
+		// Get face corners in slicer space
+		const Eigen::Vector3i& face = _pF.row(i);
+
+		const Eigen::Vector3d& va = _pV.row(face.x());
+		const Eigen::Vector2d& a = rot * Eigen::Vector2d(va.x(), va.z());
+
+		const Eigen::Vector3d& vb = _pV.row(face.y());
+		const Eigen::Vector2d& b = rot * Eigen::Vector2d(vb.x(), vb.z());
+
+		const Eigen::Vector3d& vc = _pV.row(face.z());
+		const Eigen::Vector2d& c = rot * Eigen::Vector2d(vc.x(), vc.z());
+
+		const double min = std::max(a.x(), std::max(b.x(), c.x()));
+		const double max = std::min(a.x(), std::min(b.x(), c.x()));
+		Interval interval(min, max);
+
+		bool added = false;
+		added = lineIntersection(p.y(), a, b, interval) || added;
+		added = lineIntersection(p.y(), a, c, interval) || added;
+		added = lineIntersection(p.y(), b, c, interval) || added;
+		if (added)
+		{
+			slice.addInterval(interval);
+		}
+	}
+
+	// Keep going until nothing has been sliced
+	if (!slice.isEmpty())
+	{
+		bread.walk(density, slice);
+		return true;
+	}
+	return false;
+}
+
+void Meshbuilder::renderSlices(const IntervalBread& bread, igl::opengl::glfw::Viewer& viewer, double altitude) const
+{
+	std::vector<Eigen::Vector2d> Lfrom;
+	std::vector<Eigen::Vector2d> Lto;
+	bread.depthSearch([&](const Eigen::Vector2d & from, const Eigen::Vector2d & to)
+	{
+			Lfrom.push_back(from);
+			Lto.push_back(to);
+	});
+
+	Eigen::MatrixXd VFrom(Lfrom.size(), 3);
+	Eigen::MatrixXd VTo(Lto.size(), 3);
+	for (int i = 0; i < VFrom.rows(); i++)
+	{
+		VFrom.row(i) = Eigen::Vector3d(Lfrom[i].x(), altitude, Lfrom[i].y());
+		VTo.row(i) = Eigen::Vector3d(Lto[i].x(), altitude, Lto[i].y());
+	}
+
+	const Eigen::RowVector3d red(1.0, 0.0, 0.0);
+	viewer.data().add_edges(VFrom, VTo, red);
 }

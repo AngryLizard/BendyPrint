@@ -52,7 +52,7 @@ Eigen::MatrixXd Tetrahedron::dUdx(const Eigen::MatrixXd& dUdF) const
 	return gradient;
 }
 
-Eigen::MatrixXd Tetrahedron::dEdF(const Eigen::MatrixXd& F) const
+Eigen::MatrixXd Tetrahedron::dUdF(const Eigen::MatrixXd& E, const Eigen::MatrixXd& F) const
 {
-	return F;
+	return (_shear * E.trace() * F + 2 * _bulk * F * E) * _volume;
 }
