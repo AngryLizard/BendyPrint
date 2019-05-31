@@ -18,13 +18,20 @@ public:
 	/////////////////////////////////////////////////////
 protected:
 
-	virtual Eigen::MatrixXd computeDeformation(const Eigen::MatrixXd& X) const override;
-	virtual Eigen::MatrixXd computeStrain(const Eigen::MatrixXd& F) const override;
+	virtual Eigen::MatrixXd compute_F(const Eigen::MatrixXd& X) const override;
+	virtual Eigen::MatrixXd compute_E(const Eigen::MatrixXd& F) const override;
+	virtual double compute_U(const Eigen::MatrixXd& E) const override;
+	
+	virtual Eigen::MatrixXd compute_dUdE(const Eigen::MatrixXd& E) const override;
+	virtual Eigen::MatrixXd compute_dEdF(const Eigen::MatrixXd& F) const override;
+	virtual Eigen::MatrixXd compute_dFdx(const Eigen::MatrixXd& x, int32_t i, int32_t j) const override;
 
-	virtual Eigen::MatrixXd dUdx(const Eigen::MatrixXd& dUdF) const override;
-	virtual Eigen::MatrixXd dUdF(const Eigen::MatrixXd& E, const Eigen::MatrixXd& F) const override;
+	virtual Eigen::MatrixXd compute_ddFddx(const Eigen::MatrixXd& x) const override;
+	virtual Eigen::MatrixXd compute_ddEddF(const Eigen::MatrixXd& F) const override;
+	virtual Tensor compute_ddUddE(const Eigen::MatrixXd& E) const override;
+
 
 	/////////////////////////////////////////////////////
 private:
-	Tensor _invdX;
+	Rotation _invdX;
 };

@@ -5,7 +5,7 @@ float Printer::extruderDistance(const Vec& pos) const
 {
 	const float deltaX = pos.x() - extruder.pos.x();
 	const float deltaY = pos.y() - extruder.pos.y();
-	return sqrtf(deltaX * deltaX + deltaY * deltaY);
+	return sqrt(deltaX * deltaX + deltaY * deltaY);
 }
 
 void Printer::writeRetract(bool lift)
@@ -46,12 +46,12 @@ void Printer::writeFast(const Vec & pos, bool lift)
 	}
 }
 
-void Printer::writeMove(const Vec & pos, int32_t feed)
+void Printer::writeMove(const Vec & pos, int32_t feed, double density)
 {
 	const float dist = extruderDistance(pos);
 	if (dist > EPS)
 	{
-		extruder.extrude += settings.lineDensity * dist;
+		extruder.extrude += settings.lineDensity * dist * density;
 
 		if (feed != extruder.feed)
 		{
@@ -66,14 +66,14 @@ void Printer::writeMove(const Vec & pos, int32_t feed)
 	}
 }
 
-void Printer::writeLayer()
+void Printer::writeLayer(double height)
 {
 	// Init layer
 	extruder.file << "; LAYER : " << extruder.layer << std::endl;
-	extruder.layer++;
+	extruder.layer += settings.layerHeight * height;
 
 	extruder.file << "M107" << std::endl;
-	extruder.file << "G0 F9000 X" << extruder.pos.x() << " Y" << extruder.pos.y() << " Z" << extruder.layer * settings.layerHeight << std::endl;
+	extruder.file << "G0 F9000 X" << extruder.pos.x() << " Y" << extruder.pos.y() << " Z" << extruder.layer << std::endl;
 	extruder.feed = 9000;
 }
 
@@ -83,18 +83,68 @@ void Printer::writeRect(const Vec & extend, const Vec & pos)
 	const Vec max = pos + extend;
 
 	writeFast(min, true);
-	writeMove(Vec(min.x(), max.y()), 600);
-	writeMove(Vec(max.x(), max.y()), 600);
-	writeMove(Vec(max.x(), min.y()), 600);
-	writeMove(Vec(min.x(), min.y()), 600);
+	writeMove(Vec(min.x(), max.y()), 600, 1.0);
+	writeMove(Vec(max.x(), max.y()), 600, 1.0);
+	writeMove(Vec(max.x(), min.y()), 600, 1.0);
+	writeMove(Vec(min.x(), min.y()), 600, 1.0);
+}
+
+void Printer::travel(const Slicer* slicer, TravelFunc moveOutline, TravelFunc moveRaft, TravelFunc moveFill, LayerFunc raft, LayerFunc ascend, LayerFunc fill)
+{
+	// Travel layers
+	for (int32_t layer = 0; layer < settings.layers; layer++)
+	{
+		ascend(layer);
+
+		const OutlineBread outlineBread = slicer->createOutlineBread();
+		slicer->outlineSearch(outlineBread, [&](const Eigen::Vector2d& from, const Eigen::Vector2d& to, bool jump) {
+			moveOutline(layer, from, to, jump);
+			}, settings.lineWidth * 0.6);
+
+		raft(layer);
+		const double angle = M_PI / (settings.layers) * layer;
+
+		const Eigen::Vector2d nrm = Eigen::Vector2d(std::cos(angle), std::sin(angle));
+		if (settings.outlineSliceEnabled)
+		{
+			const IntervalBread intervalBread = slicer->createIntervalBread(nrm.normalized(), outlineBread, settings.stride);
+			auto move = [&](const Eigen::Vector2d& from, const Eigen::Vector2d& to, bool jump) { moveRaft(layer, from, to, jump); };
+			intervalBread.depthSearch(move, 0.0, settings.threshold);
+		}
+		else
+		{
+			const IntervalBread intervalBread = slicer->createIntervalBread(nrm.normalized(), settings.stride);
+			auto move = [&](const Eigen::Vector2d& from, const Eigen::Vector2d& to, bool jump) { moveRaft(layer, from, to, jump); };
+			intervalBread.depthSearch(move, 0.0, settings.threshold);
+		}
+	}
+
+	if (settings.fillEnabled)
+	{
+		const int32_t layers = (int32_t)(settings.depth / settings.layerHeight);
+		for (int32_t layer = 0; layer < layers; layer++)
+		{
+			fill(layer);
+
+			const double height = settings.layerHeight * layer;
+			const TriangleBread triangleBread = slicer->createTriangleBread(settings.nipplescale, height);
+			auto move = [&](const Eigen::Vector2d& from, const Eigen::Vector2d& to, bool jump) { moveFill(layer, from, to, jump); };
+			triangleBread.depthSearch(move, settings.fill, settings.lineWidth);
+		}
+	}
 }
 
 
-void Printer::generate(const char* filename)
+void Printer::generate(const Slicer* slicer, const char* filename)
 {
-	extruder.layer = 0;
+	Settings memory = settings;
+	Vec ctr = Vec(100.0f, 100.0f);
+
+	const int32_t speed = 960;
+
+	extruder.layer = 0.0f;
 	extruder.extrude = 0.0f;
-	extruder.pos = Vec::Constant(100.0f);
+	extruder.pos = ctr;
 
 	const std::ios_base::openmode mode = std::ios::out | std::ios::binary | std::ios::trunc;
 	extruder.file = std::ofstream(filename, mode);
@@ -112,63 +162,58 @@ void Printer::generate(const char* filename)
 			std::cerr << "Opening prologue failed!" << std::endl;
 		}
 		prologue.close();
-
-
-		for (int cpy = 0; cpy < 5; cpy++)
+		
+		ctr.x() -= 0.5f * settings.margin * ((double)settings.copies - 0.5);
+		for (int copy = 0; copy < settings.copies; copy++)
 		{
-			const Vec ctr = Vec(100.0f, 50.0f + 25.0f * cpy);
-			const Vec stride = settings.stride * ((float)(cpy + 1) / 5);
+			if (settings.copies > 1)
+			{
+				// Vary some setting for each copy
+				const double variation = 0.5 + 1.0 * ((double)copy / (settings.copies - 1));
+				settings.lineDensity = memory.lineDensity * variation;
+			}
+
+			// Extrudes or moves on a jump
+			TravelFunc move = [&](int32_t layer, const Eigen::Vector2d& from, const Eigen::Vector2d& to, bool jump)
+			{
+				const Eigen::Vector2d start = ctr + from;
+				const Eigen::Vector2d end = ctr + to;
+				if (jump)
+				{
+					writeFast(start, true);
+				}
+				else
+				{
+					writeMove(start, speed, 1.0);
+				}
+				writeMove(end, speed, 1.0);
+			};
+
+			// Change direction unformly
+			LayerFunc raft = [&](int32_t layer)
+			{
+				extruder.file << "; Inner " << std::endl;
+			};
+
+			// Write half a layer for the raft
+			LayerFunc ascend = [&](int32_t layer)
+			{
+				writeLayer(0.25f);// layer == 0 ? 0.5f : 1.0f);
+				extruder.file << "; Outer " << std::endl;
+			};
+
+			// Write layer
+			LayerFunc fill = [&](int32_t layer)
+			{
+				writeLayer(2.0);
+			};
 
 			// Write layers
 			extruder.file << "; Layer count : " << settings.layers << std::endl;
-			for (int32_t layer = 0; layer < settings.layers; layer++)
-			{
-				writeLayer();
+			travel(slicer, move, move, move, raft, ascend, fill);
 
-				extruder.file << "; Outer " << std::endl;
-				const Vec off = Vec::Constant(settings.lineWidth);
-				writeRect(settings.extend - off * 0, ctr);
-				writeRect(settings.extend - off * 1, ctr);
 
-				extruder.file << "; Inner " << std::endl;
-				const Vec min = ctr - (settings.extend - off * 2);
-				const Vec max = ctr + (settings.extend - off * 2);
-				const Vec offs = Vec::Ones() / settings.layers * settings.repetitions;
-				const Vec bgn = stride.cwiseProduct(Vec(fmod(offs.x() * layer, 1.0f), fmod(offs.y() * layer, 1.0f)));
-				Eigen::Vector2i totals = (max - min - bgn).cwiseQuotient(stride).cast<int32_t>();
-
-				writeFast(min, true);
-				for (int32_t i = 0; i <= totals.x(); i++)
-				{
-					const float x = min.x() + i * stride.x() + bgn.x();
-					if (i & 1)
-					{
-						writeMove(Vec(x, max.y()), 780.0f);
-						writeMove(Vec(x, min.y()), 780.0f);
-					}
-					else
-					{
-						writeMove(Vec(x, min.y()), 780.0f);
-						writeMove(Vec(x, max.y()), 780.0f);
-					}
-				}
-
-				writeFast(min, true);
-				for (int32_t i = 0; i <= totals.y(); i++)
-				{
-					const float y = min.y() + i * stride.y() + bgn.y();
-					if (i & 1)
-					{
-						writeMove(Vec(max.x(), y), 780.0f);
-						writeMove(Vec(min.x(), y), 780.0f);
-					}
-					else
-					{
-						writeMove(Vec(min.x(), y), 780.0f);
-						writeMove(Vec(max.x(), y), 780.0f);
-					}
-				}
-			}
+			ctr.x() += settings.margin;
 		}
 
 
@@ -191,5 +236,6 @@ void Printer::generate(const char* filename)
 	{
 		std::cerr << "Opening file " << filename << " failed!" << std::endl;
 	}
+	settings = memory;
 }
 

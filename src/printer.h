@@ -5,10 +5,12 @@
 #include <iostream>
 #include <fstream>
 
-#define EPS 0.0001f
+#include "meshbuilder.h"
 
-using Vec = Eigen::Vector2f;
+using TravelFunc = std::function<void(int32_t layer, const Eigen::Vector2d& from, const Eigen::Vector2d& to, bool jump)>;
+using LayerFunc = std::function<void(int32_t layer)>;
 
+using Vec = Eigen::Vector2d;
 
 class Printer
 {
@@ -19,11 +21,19 @@ public:
 		float layerHeight;
 		float lineDensity;
 		float lineWidth;
+		float stride;
+		float threshold;
 
+		float depth;
+		float nipplescale;
+		int32_t fill;
 		int32_t layers;
-		Vec extend;
-		Vec stride;
-		int32_t repetitions;
+
+		int32_t copies;
+		float margin;
+
+		bool fillEnabled;
+		bool outlineSliceEnabled;
 	} settings;
 
 private:
@@ -31,7 +41,7 @@ private:
 	struct Extruder
 	{
 		std::ofstream file;
-		int32_t layer;
+		float layer;
 		float extrude;
 		int32_t feed;
 		Vec pos;
@@ -43,12 +53,14 @@ private:
 	void writeExtract(bool lift);
 
 	void writeFast(const Vec& pos, bool lift);
-	void writeMove(const Vec& pos, int32_t feed);
+	void writeMove(const Vec& pos, int32_t feed, double density);
 
-	void writeLayer();
+	void writeLayer(double height);
 	void writeRect(const Vec& extend, const Vec& pos);
 
 public:
+	
+	void travel(const Slicer* slicer, TravelFunc moveOutline, TravelFunc moveRaft, TravelFunc moveFill, LayerFunc raft = [](int32_t) {}, LayerFunc ascend = [](int32_t) {}, LayerFunc fill = [](int32_t) {});
 
-	void generate(const char* filename);
+	void generate(const Slicer* slicer, const char* filename);
 };

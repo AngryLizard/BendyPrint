@@ -13,7 +13,8 @@ Fixed::~Fixed()
 
 }
 
-void Fixed::compute(const Eigen::MatrixXd& V)
+
+void Fixed::compute(const Eigen::MatrixXd& V, const Eigen::MatrixXd& ext)
 {
 	Eigen::MatrixXd x = extract(V);
 	_energy = energy(x);
@@ -49,7 +50,7 @@ double Fixed::diffTest(const Eigen::MatrixXd& V, double h)
 
 Eigen::MatrixXd Fixed::computeGradient(const Eigen::MatrixXd& x) const
 {
-	return 0.5 * _k * (x - _X);
+	return _k * (x - _X);
 }
 
 double Fixed::energy(const Eigen::MatrixXd& x) const

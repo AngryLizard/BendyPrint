@@ -19,6 +19,11 @@ double Element::getEnergy() const
 	return _energy;
 }
 
+const Eigen::VectorXi& Element::getVertices() const
+{
+	return _indices;
+}
+
 /////////////////////////////////////////////////////
 
 void Element::addGradient(Eigen::MatrixXd& G) const

@@ -6,7 +6,7 @@
 #include <Eigen/Core>
 #include <iostream>
 
-#define EPS 0.0001f
+#define EPS 0.000001f
 //#define COMPUTE_FINITE_DIFFERENCE
 
 class Element
@@ -18,11 +18,12 @@ public:
 	virtual ~Element();
 
 	double getEnergy() const;
+	const Eigen::VectorXi& getVertices() const;
 
 	/////////////////////////////////////////////////////
 public:
 
-	virtual void compute(const Eigen::MatrixXd& V) = 0;
+	virtual void compute(const Eigen::MatrixXd& V, const Eigen::MatrixXd& ext) = 0;
 	virtual double diffTest(const Eigen::MatrixXd& V, double h) = 0;
 
 	void addGradient(Eigen::MatrixXd& G) const;
